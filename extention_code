@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════════════════
+# NEXUS LANGFIX — Fixateur de langue Firefox
+# Force la langue d'affichage sur toutes les pages web.
+# Auteur : Aissa Mohammedi (DGK)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+# Détection du Bureau
+if [ -d "$HOME/Desktop" ]; then
+    DESKTOP="$HOME/Desktop"
+elif [ -d "$HOME/Bureau" ]; then
+    DESKTOP="$HOME/Bureau"
+else
+    DESKTOP="$HOME"
+fi
+
+EXT_NAME="Nexus-LangFix"
+EXT_DIR="$DESKTOP/$EXT_NAME"
+
+echo -e "\033[1;36m╔══════════════════════════════════════════════════════════════╗\033[0m"
+echo -e "\033[1;36m║   NEXUS LANGFIX — BUILDER                                   ║\033[0m"
+echo -e "\033[1;36m╚══════════════════════════════════════════════════════════════╝\033[0m"
+
+rm -rf "$EXT_DIR"
+mkdir -p "$EXT_DIR"
+
+# ─── 1. manifest.json ───
+cat > "$EXT_DIR/manifest.json" << 'EOF'
+{
+  "manifest_version": 3,
+  "name": "Nexus LangFix",
+  "version": "1.0.0",
+  "description": "Force la langue désirée sur toutes les pages web, même quand Firefox bug.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Nexus LangFix",
+    "default_icon": {
+      "48": "icon.png"
+    }
+  },
+  "icons": {
+    "48": "icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
+EOF
+echo -e "  \033[1;32m[✓]\033[0m manifest.json généré"
+
+# ─── 2. background.js (Gestion de la config) ───
+cat > "$EXT_DIR/background.js" << 'EOF'
+// Initialisation de la langue par défaut au démarrage
+browser.runtime.onInstalled.addListener(async () => {
+    const data = await browser.storage.local.get("targetLang");
+    if (!data.targetLang) {
+        // Par défaut, on met le français
+        await browser.storage.local.set({ targetLang: "fr" });
+    }
+});
+EOF
+echo -e "  \033[1;32m[✓]\033[0m background.js généré"
+
+# ─── 3. content.js (Le cœur du fix) ───
+cat > "$EXT_DIR/content.js" << 'EOF'
+// Ce script s'exécute sur chaque page web
+
+(async () => {
+    // 1. Récupérer la langue cible depuis le stockage
+    const data = await browser.storage.local.get("targetLang");
+    const targetLang = data.targetLang || "fr";
+
+    // 2. Forcer l'attribut lang de la balise <html>
+    // C'est ce qui dit au navigateur comment afficher la page
+    if (document.documentElement.lang !== targetLang) {
+        document.documentElement.lang = targetLang;
+        document.documentElement.setAttribute("xml:lang", targetLang);
+    }
+
+    // 3. Corriger les balises meta http-equiv="content-language"
+    const metaLang = document.querySelector('meta[http-equiv="content-language"]');
+    if (metaLang) {
+        metaLang.setAttribute("content", targetLang);
+    } else {
+        const newMeta = document.createElement("meta");
+        newMeta.setAttribute("http-equiv", "content-language");
+        newMeta.setAttribute("content", targetLang);
+        document.head.appendChild(newMeta);
+    }
+
+    // 4. Corriger les traductions automatiques (si le site force l'anglais sur certains éléments)
+    // On cherche les balises qui ont un attribut lang différent et on le force
+    const elementsWithLang = document.querySelectorAll('[lang]:not(html)');
+    elementsWithLang.forEach(el => {
+        if (el.getAttribute("lang") !== targetLang && el.getAttribute("lang") !== "fr") {
+            el.setAttribute("lang", targetLang);
+        }
+    });
+
+    // 5. Optionnel : Bloquer les tentatives de redirection basées sur la langue
+    // Certains sites redirigent vers /en/ ou /fr/ en fonction de l'IP.
+    // On ne peut pas facilement empêcher la redirection, mais on peut forcer la langue.
+    
+    console.log(`[Nexus LangFix] Langue forcée à: ${targetLang} sur ${window.location.href}`);
+})();
+EOF
+echo -e "  \033[1;32m[✓]\033[0m content.js généré"
+
+# ─── 4. popup.html (Interface) ───
+cat > "$EXT_DIR/popup.html" << 'EOF'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>🌍 NEXUS LANGFIX</h1>
+        <p>Force ta langue sur le web.</p>
+    </div>
+    
+    <div class="control-group">
+        <label for="langSelect">Langue d'affichage :</label>
+        <select id="langSelect">
+            <option value="fr">Français (FR)</option>
+            <option value="en">English (EN)</option>
+            <option value="es">Español (ES)</option>
+            <option value="de">Deutsch (DE)</option>
+            <option value="it">Italiano (IT)</option>
+            <option value="pt">Português (PT)</option>
+            <option value="zh">中文 (ZH)</option>
+            <option value="ja">日本語 (JA)</option>
+            <option value="ru">Русский (RU)</option>
+            <option value="ar">العربية (AR)</option>
+        </select>
+    </div>
+
+    <button id="applyBtn">Appliquer</button>
+    
+    <div class="footer">
+        <small>NEXUS-OPEN-3.0 · Aissa Mohammedi</small>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
+EOF
+echo -e "  \033[1;32m[✓]\033[0m popup.html généré"
+
+# ─── 5. popup.js (Logique du popup) ───
+cat > "$EXT_DIR/popup.js" << 'EOF'
+document.addEventListener('DOMContentLoaded', async () => {
+    const select = document.getElementById('langSelect');
+    const btn = document.getElementById('applyBtn');
+
+    // Charger la langue sauvegardée
+    const data = await browser.storage.local.get("targetLang");
+    if (data.targetLang) {
+        select.value = data.targetLang;
+    }
+
+    btn.addEventListener('click', async () => {
+        const newLang = select.value;
+        
+        // 1. Sauvegarder
+        await browser.storage.local.set({ targetLang: newLang });
+
+        // 2. Appliquer à l'onglet actif immédiatement
+        const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0] && tabs[0].id) {
+            browser.scripting.executeScript({
+                target: { tabId: tabs[0].id },
+                func: (lang) => {
+                    // Recharger le script de contenu avec la nouvelle langue
+                    document.documentElement.lang = lang;
+                    document.documentElement.setAttribute("xml:lang", lang);
+                    console.log(`[Nexus LangFix] Langue mise à jour: ${lang}`);
+                },
+                args: [newLang]
+            });
+        }
+
+        // Feedback visuel
+        btn.textContent = "✅ Appliqué !";
+        setTimeout(() => { btn.textContent = "Appliquer"; }, 2000);
+    });
+});
+EOF
+echo -e "  \033[1;32m[✓]\033[0m popup.js généré"
+
+# ─── 6. style.css (Design sombre) ───
+cat > "$EXT_DIR/style.css" << 'EOF'
+:root {
+    --bg: #0a0a0f;
+    --panel: #151520;
+    --accent: #00e5ff;
+    --text: #e0e0e0;
+    --border: #2a2a3a;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+body { width: 280px; background: var(--bg); color: var(--text); padding: 20px; }
+.header { text-align: center; margin-bottom: 20px; }
+h1 { font-size: 1.2rem; color: var(--accent); text-shadow: 0 0 10px rgba(0,229,255,0.5); margin-bottom: 5px; }
+p { font-size: 0.8rem; color: #888; }
+
+.control-group { margin-bottom: 20px; }
+label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+select {
+    width: 100%; padding: 10px; background: #000; border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); outline: none; cursor: pointer;
+}
+select:focus { border-color: var(--accent); }
+
+button {
+    width: 100%; padding: 12px; background: var(--accent); color: #000;
+    border: none; border-radius: 6px; font-weight: bold; cursor: pointer;
+    text-transform: uppercase; letter-spacing: 1px; transition: 0.2s;
+}
+button:hover { background: #33ebff; box-shadow: 0 0 15px rgba(0,229,255,0.4); }
+
+.footer { text-align: center; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 10px; color: #555; }
+EOF
+echo -e "  \033[1;32m[✓]\033[0m style.css généré"
+
+# ─── 7. icon.png (Placeholder simple) ───
+echo "iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADPSURBVGhD7drBCcMwDIXhJXqIjuAhOoKH6AgdoSN0hI7gITqCh+gIHqIjeIiO4CE6QofwEB3CQ3QID9EhPESH8BAdwkN0CA/RIWzDtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtmzLtvwHX+8B1Z1F5q8AAAAASUVORK5CYII=" | base64 -d > "$EXT_DIR/icon.png"
+echo -e "  \033[1;32m[✓]\033[0m icon.png généré"
+
+echo ""
+echo -e "\033[1;32m╔══════════════════════════════════════════════════════════════╗\033[0m"
+echo -e "\033[1;32m║   EXTENSION GÉNÉRÉE AVEC SUCCÈS                            ║\033[0m"
+echo -e "\033[1;32m╚══════════════════════════════════════════════════════════════╝\033[0m"
+echo -e "  Dossier : \033[1;36m$EXT_DIR\033[0m"
+echo ""
+echo -e "  \033[1;33mPOUR L'INSTALLER DANS FIREFOX :\033[0m"
+echo -e "  1. Ouvre Firefox."
+echo -e "  2. Tape \033[1;36mabout:debugging\033[0m dans la barre d'adresse."
+echo -e "  3. Clique sur \033[1;36m'Ce Firefox'\033[0m."
+echo -e "  4. Clique sur \033[1;36m'Charger un module temporaire...'\033[0m."
+echo -e "  5. Sélectionne \033[1;36m$EXT_DIR/manifest.json\033[0m"
+echo -e "  6. Clique sur l'icône de l'extension dans la barre d'outils."
+echo -e "  7. Choisis ta langue et clique sur 'Appliquer'."
+echo ""
+echo -e "  \033[1;33mCE QUE ÇA FAIT :\033[0m"
+echo -e "  - Force l'attribut 'lang' de la page sur toutes les pages web."
+echo -e "  - Corrige les balises meta 'content-language'."
+echo -e "  - Applique la langue à tous les éléments qui ont un attribut 'lang'."
+echo -e "  - Fonctionne même si Firefox a oublié ta langue."
+echo ""
